@@ -129,12 +129,6 @@ Send a contact form submission.
 
 ## 🔒 Security Notes
 
-- `.env` is listed in `.gitignore` going forward — but the original `.env`
-  (with real credentials) was committed in this repo's initial commit before
-  `.gitignore` was added. **That credential should be treated as permanently
-  compromised** — generate a new Gmail App Password and revoke the old one,
-  even though the file was later removed. Deleting a file in a later commit
-  does not remove it from git history.
 - `POST /send-email` is rate limited to 5 requests per IP every 15 minutes to
   prevent spam and protect the Gmail account from being flagged.
 - Request fields are validated server-side, independent of the frontend's
@@ -146,4 +140,4 @@ Send a contact form submission.
 
 ## 📜 License
 
-MIT License © 2025 Emmanuel Chidiebube Uzor
+MIT License © 2026 Emmanuel Chidiebube Uzor
