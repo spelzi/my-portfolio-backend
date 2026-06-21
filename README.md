@@ -33,8 +33,8 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/st-manuel11-backend.git
-cd st-manuel11-backend
+git clone https://github.com/your-username/my-portfolio-backend.git
+cd my-portfolio-backend
 ```
 
 ### 2. Install dependencies
