@@ -140,4 +140,4 @@ Send a contact form submission.
 
 ## 📜 License
 
-MIT License © 2026 Emmanuel Chidiebube Uzor
+MIT License © 2026 Emmanuel Chidiebube Uzor.
