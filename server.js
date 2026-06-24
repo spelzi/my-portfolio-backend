@@ -103,7 +103,7 @@ app.post(
         .status(200)
         .json({ success: true, message: "Email sent successfully!" });
     } catch (error) {
-      console.error("❌ NODEMAILER FAILURE DETAILS:", error);
+      console.error(" NODEMAILER FAILURE DETAILS:", error);
 
       return res.status(500).json({
         error: "Failed to send email",
