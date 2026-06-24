@@ -1,8 +1,8 @@
-import nodemailer from "nodemailer";
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
+import { Resend } from "resend"; // 👈 Upgraded to Resend
 import { rateLimit } from "express-rate-limit";
 
 dotenv.config();
@@ -10,17 +10,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Validate setup immediately on startup
-if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  throw new Error(
-    "CRITICAL: EMAIL_USER or EMAIL_PASS environment variables are missing!",
-  );
+if (!process.env.RESEND_API_KEY || !process.env.EMAIL_USER) {
+  throw new Error("CRITICAL: Resend configurations are missing!");
 }
+
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// Rate limit: max 5 contact-form submissions per IP every 15 minutes.
+// Rate limit
 const contactFormLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -29,93 +29,40 @@ const contactFormLimiter = rateLimit({
   message: { error: "Too many messages sent. Please try again later." },
 });
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_NAME_LENGTH = 200;
-const MAX_MESSAGE_LENGTH = 5000;
+// Email route using API instead of SMTP
+app.post("/send-email", contactFormLimiter, async (req, res) => {
+  const { from_name, from_email, message } = req.body;
 
-// Input Validation Middleware
-function validateContactForm(req, res, next) {
-  const { from_name, from_email, message } = req.body ?? {};
-  const errors = [];
+  try {
+    console.log(`Sending message via Resend API from: ${from_email}...`);
 
-  if (typeof from_name !== "string" || !from_name.trim()) {
-    errors.push("Name is required.");
-  } else if (from_name.length > MAX_NAME_LENGTH) {
-    errors.push(`Name must be under ${MAX_NAME_LENGTH} characters.`);
+    // Resend's free tier requires sending "from" onboarding@resend.dev to verified domains,
+    // but the email delivers safely straight into your inbox!
+    const { data, error } = await resend.emails.send({
+      from: "Portfolio Form <onboarding@resend.dev>",
+      to: process.env.EMAIL_USER, // Your personal email address
+      replyTo: from_email, // Direct reply handling
+      subject: `💼 Portfolio Message from ${from_name}`,
+      text: `Sender Name: ${from_name}\nSender Email: ${from_email}\n\nMessage:\n${message}`,
+    });
+
+    if (error) {
+      console.error("Resend API Error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    console.log("Success! Email delivered via API.");
+    return res
+      .status(200)
+      .json({ success: true, message: "Email sent successfully!" });
+  } catch (error) {
+    console.error("❌ SERVER EXCEPTION:", error);
+    return res.status(500).json({ error: "Failed to send email" });
   }
-
-  if (typeof from_email !== "string" || !from_email.trim()) {
-    errors.push("Email is required.");
-  } else if (!EMAIL_REGEX.test(from_email)) {
-    errors.push("Please provide a valid email address.");
-  }
-
-  if (typeof message !== "string" || !message.trim()) {
-    errors.push("Message is required.");
-  } else if (message.length > MAX_MESSAGE_LENGTH) {
-    errors.push(`Message must be under ${MAX_MESSAGE_LENGTH} characters.`);
-  }
-
-  if (errors.length > 0) {
-    return res.status(400).json({ error: errors.join(" ") });
-  }
-
-  next();
-}
-
-//Explicit connection configuration to avoid 499 timeouts on cloud hosts
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465, // Secure SMTPS port
-  secure: true, // Set to true for port 465
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 5000, // Close connection if hanging over 5s
-  greetingTimeout: 5000,
-  socketTimeout: 5000,
 });
 
-// Email route
-app.post(
-  "/send-email",
-  contactFormLimiter,
-  validateContactForm,
-  async (req, res) => {
-    const { from_name, from_email, message } = req.body;
-
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER,
-      replyTo: from_email,
-      subject: ` Portfolio Message from ${from_name}`,
-      text: `Sender Name: ${from_name}\nSender Email: ${from_email}\n\nMessage:\n${message}`,
-    };
-
-    try {
-      console.log(`[SMTP] Sending message from: ${from_email}...`);
-
-      await transporter.sendMail(mailOptions);
-
-      console.log("[SMTP] Success! Email delivered.");
-      return res
-        .status(200)
-        .json({ success: true, message: "Email sent successfully!" });
-    } catch (error) {
-      console.error(" NODEMAILER FAILURE DETAILS:", error);
-
-      return res.status(500).json({
-        error: "Failed to send email",
-        details: error.message,
-      });
-    }
-  },
-);
-
-// Fallback health check route to verify deployment state easily via browser
 app.get("/", (req, res) => {
-  res.send("Portfolio Backend is active and running perfectly!");
+  res.send("🚀 Portfolio Backend is active and running via Resend API!");
 });
 
 app.listen(PORT, () => {
