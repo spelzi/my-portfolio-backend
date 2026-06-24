@@ -9,11 +9,14 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 
 - REST API built with **Express.js**
 - Handles **contact form submissions** from the frontend
-- Uses **Nodemailer** to send emails
-- Secrets stored in `.env` file (not committed to GitHub)
-- CORS enabled to allow frontend requests
-- **Rate limited** — max 5 submissions per IP per 15 minutes
-- **Server-side validation** on name, email, and message fields
+- Uses **Nodemailer** with direct SMTPS configuration over secure port `465` to bypass cloud network blocks
+- Built-in network connection timeouts (5 seconds) to prevent server hangs (`499 Client Closed Request` errors)
+- Secrets safely stored in `.env` file locally and configured via cloud variables in production (never committed to GitHub)
+- CORS enabled to allow cross-origin frontend requests
+- **Rate limited** — max 5 submissions per IP per 15 minutes to prevent spam relay abuse
+- **Server-side validation** on data types, email regex patterns, and string length restrictions (`MAX_MESSAGE_LENGTH: 5000`)
+- **Automated Reply Handling** via `replyTo` configuration headers, ensuring native email replies route back to your visitor instead of yourself
+- Explicit startup environment validation to immediately identify missing variables.
 
 ---
 
@@ -33,7 +36,7 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/my-portfolio-backend.git
+git clone https://github.com/spelzi/my-portfolio-backend.git
 cd my-portfolio-backend
 ```
 
@@ -86,13 +89,13 @@ Send a contact form submission.
 
 ```json
 {
-  "from_name": "John Doe",
-  "from_email": "johndoe@example.com",
+  "from_name": "Emmanuel Uzor",
+  "from_email": "emma2203@example.com",
   "message": "Hello, I am interested in your services!"
 }
 ```
 
-**Response (success):**
+**Response (success, 200):**
 
 ```json
 {
@@ -121,7 +124,8 @@ Send a contact form submission.
 
 ```json
 {
-  "error": "Failed to send email"
+  "error": "Failed to send email",
+  "details": "Error message trace detailed from SMTP server"
 }
 ```
 
@@ -131,10 +135,14 @@ Send a contact form submission.
 
 - `POST /send-email` is rate limited to 5 requests per IP every 15 minutes to
   prevent spam and protect the Gmail account from being flagged.
-- Request fields are validated server-side, independent of the frontend's
-  own validation, since this endpoint can be called directly.
-- On deployment (e.g. Render, Railway, Vercel), set environment variables in
-  the platform's dashboard rather than uploading a `.env` file.
+- Request fields are strictly validated server-side, independent of the frontend's
+  own validation, since this endpoint can be called directly by tools like Postman or curl.
+- Production Variable Injection: On deployment platforms (such as Railway or Render),
+  never force-push or upload a .env file. Instead, manually bind EMAIL_USER and EMAIL_PASS
+  in the cloud platform's Variables/Environment dashboard.
+- Production Failure Diagnostics: If emails fail to deploy properly in production,
+  check your host cloud console interface under the Deploy Logs terminal log output rather than
+  the raw HTTP status monitor to inspect the exact trace tagged by the phrase: ❌ NODEMAILER FAILURE DETAILS:.
 
 ---
 

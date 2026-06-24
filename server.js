@@ -10,16 +10,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Validate setup immediately on startup
 if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-  throw new Error("Email credentials missing");
+  throw new Error(
+    "CRITICAL: EMAIL_USER or EMAIL_PASS environment variables are missing!",
+  );
 }
 
 app.use(cors());
 app.use(bodyParser.json());
 
 // Rate limit: max 5 contact-form submissions per IP every 15 minutes.
-// Protects the Gmail account from being flagged for unusual sending activity
-// and stops the endpoint being used as a free spam relay.
 const contactFormLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
@@ -32,9 +33,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_NAME_LENGTH = 200;
 const MAX_MESSAGE_LENGTH = 5000;
 
-// Validates the request body before it ever reaches Nodemailer.
-// The frontend already validates this, but this endpoint can be called
-// directly (Postman, curl, etc.), so it can't rely on that alone.
+// Input Validation Middleware
 function validateContactForm(req, res, next) {
   const { from_name, from_email, message } = req.body ?? {};
   const errors = [];
@@ -64,6 +63,20 @@ function validateContactForm(req, res, next) {
   next();
 }
 
+//Explicit connection configuration to avoid 499 timeouts on cloud hosts
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465, // Secure SMTPS port
+  secure: true, // Set to true for port 465
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+  connectionTimeout: 5000, // Close connection if hanging over 5s
+  greetingTimeout: 5000,
+  socketTimeout: 5000,
+});
+
 // Email route
 app.post(
   "/send-email",
@@ -72,30 +85,38 @@ app.post(
   async (req, res) => {
     const { from_name, from_email, message } = req.body;
 
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER,
+      replyTo: from_email,
+      subject: ` Portfolio Message from ${from_name}`,
+      text: `Sender Name: ${from_name}\nSender Email: ${from_email}\n\nMessage:\n${message}`,
+    };
 
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: process.env.EMAIL_USER, // send to yourself
-        subject: `Message from ${from_name}`,
-        text: `Email: ${from_email}\n\nMessage:\n${message}`,
-      };
+    try {
+      console.log(`[SMTP] Sending message from: ${from_email}...`);
 
       await transporter.sendMail(mailOptions);
-      res.json({ success: true, message: "Email sent successfully!" });
+
+      console.log("[SMTP] Success! Email delivered.");
+      return res
+        .status(200)
+        .json({ success: true, message: "Email sent successfully!" });
     } catch (error) {
-      console.error("Error sending email:", error);
-      res.status(500).json({ error: "Failed to send email" });
+      console.error("❌ NODEMAILER FAILURE DETAILS:", error);
+
+      return res.status(500).json({
+        error: "Failed to send email",
+        details: error.message,
+      });
     }
   },
 );
+
+// Fallback health check route to verify deployment state easily via browser
+app.get("/", (req, res) => {
+  res.send("Portfolio Backend is active and running perfectly!");
+});
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
