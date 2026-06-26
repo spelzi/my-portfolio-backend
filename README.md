@@ -9,7 +9,7 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 
 - REST API built with **Express.js**
 - Handles **contact form submissions** from the frontend
-- Uses **Nodemailer** with direct SMTPS configuration over secure port `465` to bypass cloud network blocks
+- Uses **Resend API** for email delivery
 - Built-in network connection timeouts (5 seconds) to prevent server hangs (`499 Client Closed Request` errors)
 - Secrets safely stored in `.env` file locally and configured via cloud variables in production (never committed to GitHub)
 - CORS enabled to allow cross-origin frontend requests
@@ -24,7 +24,7 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 
 - Node.js
 - Express.js
-- Nodemailer
+- Resend API
 - dotenv
 - CORS
 - express-rate-limit
