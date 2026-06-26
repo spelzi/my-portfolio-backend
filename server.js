@@ -2,7 +2,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
-import { Resend } from "resend"; // 👈 Upgraded to Resend
+import { Resend } from "resend";
 import { rateLimit } from "express-rate-limit";
 
 dotenv.config();
