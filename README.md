@@ -204,7 +204,7 @@ Sends a contact form submission to the portfolio owner's inbox via Resend.
 
 ```json
 {
-  "error": "Failed to send email"
+  "error": "Failed to send email."
 }
 ```
 
