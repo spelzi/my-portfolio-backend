@@ -1,7 +1,7 @@
-# 📩 Portfolio Backend – Contact Form API
+# 📩 Portfolio Backend – Contact Form & Admin Auth API
 
 This is the **backend server** for my portfolio website.
-It handles sending contact form messages securely using **Node.js, Express, and Nodemailer**.
+It handles contact form submissions and secure admin authentication using **Node.js, Express, Resend, and JWT**.
 
 ---
 
@@ -10,13 +10,15 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 - REST API built with **Express.js**
 - Handles **contact form submissions** from the frontend
 - Uses **Resend API** for email delivery
-- Built-in network connection timeouts (5 seconds) to prevent server hangs (`499 Client Closed Request` errors)
-- Secrets safely stored in `.env` file locally and configured via cloud variables in production (never committed to GitHub)
-- CORS enabled to allow cross-origin frontend requests
-- **Rate limited** — max 5 submissions per IP per 15 minutes to prevent spam relay abuse
-- **Server-side validation** on data types, email regex patterns, and string length restrictions (`MAX_MESSAGE_LENGTH: 5000`)
-- **Automated Reply Handling** via `replyTo` configuration headers, ensuring native email replies route back to your visitor instead of yourself
-- Explicit startup environment validation to immediately identify missing variables.
+- **JWT-based admin authentication** — password never exposed in the frontend bundle
+- **Security headers** via Helmet
+- **CORS locked** to specific allowed frontend origins only
+- **Rate limited** — max 5 contact submissions and 10 auth attempts per IP per 15 minutes
+- **Server-side validation** on data types, email regex patterns, and string length restrictions
+- **Automated reply handling** via `replyTo` headers, routing replies to the visitor not yourself
+- Secrets safely stored in `.env` locally and configured via cloud variables in production (never committed to GitHub)
+- Explicit startup environment validation to immediately identify missing variables
+- **ESLint configured** for code quality checks
 
 ---
 
@@ -25,9 +27,12 @@ It handles sending contact form messages securely using **Node.js, Express, and 
 - Node.js
 - Express.js
 - Resend API
+- JSON Web Tokens (`jsonwebtoken`)
+- Helmet
 - dotenv
 - CORS
 - express-rate-limit
+- ESLint
 
 ---
 
@@ -46,22 +51,21 @@ cd my-portfolio-backend
 npm install
 ```
 
-### 3. Create a .env file in the project root
-
-Copy `.env.example` to `.env` and fill in your own values:
-
-```bash
-cp .env.example .env
-```
+### 3. Create a `.env` file in the project root
 
 ```env
+RESEND_API_KEY=your_resend_api_key
 EMAIL_USER=youremail@gmail.com
-EMAIL_PASS=your16charapppassword
+ADMIN_PASSWORD=your_secure_admin_password
+JWT_SECRET=your_long_random_secret_string
 PORT=5000
 ```
 
-⚠️ Important: Use a Gmail App Password, not your normal Gmail password.
-👉 [How to generate a Gmail App Password](https://support.google.com/mail/answer/185833?hl=en)
+Generate a strong `JWT_SECRET` with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
 
 ### 4. Run the server
 
@@ -81,9 +85,85 @@ npm start
 
 ## 📡 API Endpoints
 
-### POST /send-email
+### POST `/api/auth/login`
 
-Send a contact form submission.
+Authenticates the admin and returns a signed JWT token. The password is validated entirely on the server — it is never stored or exposed in the frontend bundle.
+
+**Request body (JSON):**
+
+```json
+{
+  "password": "your_admin_password"
+}
+```
+
+**Response (success, 200):**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response (invalid password, 401):**
+
+```json
+{
+  "error": "Invalid password"
+}
+```
+
+**Response (rate limited, 429):**
+
+```json
+{
+  "error": "Too many login attempts. Try again later."
+}
+```
+
+**Response (server misconfigured, 500):**
+
+```json
+{
+  "error": "Server misconfigured"
+}
+```
+
+---
+
+### POST `/api/auth/verify`
+
+Verifies whether a JWT token is still valid and unexpired.
+
+**Request body (JSON):**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Response (valid, 200):**
+
+```json
+{
+  "valid": true
+}
+```
+
+**Response (invalid or expired, 401):**
+
+```json
+{
+  "valid": false
+}
+```
+
+---
+
+### POST `/send-email`
+
+Sends a contact form submission to the portfolio owner's inbox via Resend.
 
 **Request body (JSON):**
 
@@ -124,8 +204,7 @@ Send a contact form submission.
 
 ```json
 {
-  "error": "Failed to send email",
-  "details": "Error message trace detailed from SMTP server"
+  "error": "Failed to send email"
 }
 ```
 
@@ -133,16 +212,31 @@ Send a contact form submission.
 
 ## 🔒 Security Notes
 
-- `POST /send-email` is rate limited to 5 requests per IP every 15 minutes to
-  prevent spam and protect the Gmail account from being flagged.
-- Request fields are strictly validated server-side, independent of the frontend's
-  own validation, since this endpoint can be called directly by tools like Postman or curl.
-- Production Variable Injection: On deployment platforms (such as Railway or Render),
-  never force-push or upload a .env file. Instead, manually bind EMAIL_USER and EMAIL_PASS
-  in the cloud platform's Variables/Environment dashboard.
-- Production Failure Diagnostics: If emails fail to deploy properly in production,
-  check your host cloud console interface under the Deploy Logs terminal log output rather than
-  the raw HTTP status monitor to inspect the exact trace tagged by the phrase: ❌ NODEMAILER FAILURE DETAILS:.
+- **Admin password never reaches the frontend.** Authentication is handled entirely server-side via `/api/auth/login`. The JWT token returned is stored in `sessionStorage` and expires after 8 hours.
+
+- **JWT tokens are signed** with `JWT_SECRET` using HS256. Tampering with the token payload invalidates the signature.
+
+- **CORS is locked** to specific allowed origins only — the local dev URL and the deployed frontend URL. Requests from any other origin are rejected.
+
+- **Security headers** are applied via Helmet on every response, including `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, and others.
+
+- **Rate limiting** protects both routes:
+  - `/api/auth` — max 10 login attempts per IP per 15 minutes
+  - `/send-email` — max 5 submissions per IP per 15 minutes
+
+- **Production Variable Injection:** On Railway or any other deployment platform, never upload a `.env` file. Instead, manually bind all environment variables (`RESEND_API_KEY`, `EMAIL_USER`, `ADMIN_PASSWORD`, `JWT_SECRET`) via the platform's Variables/Environment dashboard.
+
+- **Production Failure Diagnostics:** If the server fails to start in production, check the Deploy Logs in your Railway dashboard for the exact error trace from the startup environment validation check.
+
+---
+
+## 🧪 Code Quality
+
+ESLint is configured for this project. Run a check with:
+
+```bash
+npx eslint .
+```
 
 ---
 
