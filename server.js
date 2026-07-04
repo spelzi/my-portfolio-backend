@@ -22,7 +22,10 @@ app.use(helmet());
 // ─── CORS ────────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: ["my-portfolio-navy-alpha-56.vercel.app"],
+    origin: [
+      "http://localhost:5173",
+      "https://my-portfolio-navy-alpha-56.vercel.app",
+    ],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
   }),
