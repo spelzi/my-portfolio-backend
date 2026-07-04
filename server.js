@@ -5,7 +5,7 @@ import helmet from "helmet";
 import dotenv from "dotenv";
 import { Resend } from "resend";
 import { rateLimit } from "express-rate-limit";
-import authRoutes from "./Routes/auth.js"; // FIX 4: match actual folder casing
+import authRoutes from "./Routes/auth.js";
 
 dotenv.config();
 
@@ -22,7 +22,7 @@ app.use(helmet());
 // ─── CORS ────────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://my-portfolio1123424.vercel.app"],
+    origin: ["my-portfolio-navy-alpha-56.vercel.app"],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type"],
   }),
