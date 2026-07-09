@@ -11,10 +11,11 @@ It handles contact form submissions and secure admin authentication using **Node
 - Handles **contact form submissions** from the frontend
 - Uses **Resend API** for email delivery
 - **JWT-based admin authentication** — password never exposed in the frontend bundle
+- **Content storage** for blog posts, projects, and videos — backed by **Supabase (PostgreSQL)**, so admin edits are visible to every visitor, not just the device that made them
 - **Security headers** via Helmet
 - **CORS locked** to specific allowed frontend origins only
-- **Rate limited** — max 5 contact submissions and 10 auth attempts per IP per 15 minutes
-- **Server-side validation** on data types, email regex patterns, and string length restrictions
+- **Rate limited** — max 5 contact submissions, 10 auth attempts, and 30 content updates per collection, per IP, per 15 minutes
+- **Server-side validation** on data types, email regex patterns, string length restrictions, and content shape
 - **Automated reply handling** via `replyTo` headers, routing replies to the visitor not yourself
 - Secrets safely stored in `.env` locally and configured via cloud variables in production (never committed to GitHub)
 - Explicit startup environment validation to immediately identify missing variables
@@ -26,6 +27,7 @@ It handles contact form submissions and secure admin authentication using **Node
 
 - Node.js
 - Express.js
+- Supabase (PostgreSQL) — posts, projects, videos storage
 - Resend API
 - JSON Web Tokens (`jsonwebtoken`)
 - Helmet
@@ -58,6 +60,8 @@ RESEND_API_KEY=your_resend_api_key
 EMAIL_USER=youremail@gmail.com
 ADMIN_PASSWORD=your_secure_admin_password
 JWT_SECRET=your_long_random_secret_string
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 PORT=5000
 ```
 
@@ -67,7 +71,20 @@ Generate a strong `JWT_SECRET` with:
 node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
-### 4. Run the server
+### 4. Set up Supabase
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In your project, go to **SQL Editor → New query**, paste the contents of `supabase/schema.sql`, and run it. This creates the `posts`, `projects`, and `videos` tables with Row Level Security enabled and no public policies — only this backend's `service_role` key can read or write them.
+3. In **Project Settings → API**, copy the **Project URL** into `SUPABASE_URL` and the **service_role** key (not the `anon` key) into `SUPABASE_SERVICE_ROLE_KEY` in your `.env`.
+4. Populate the tables with the site's current default content:
+
+   ```bash
+   npm run seed
+   ```
+
+   This is safe to run once after setup. Don't re-run it after you've started adding real content through the admin panel — it will overwrite whatever is currently stored.
+
+### 5. Run the server
 
 For development (with auto-reload using nodemon):
 
@@ -161,6 +178,77 @@ Verifies whether a JWT token is still valid and unexpired.
 
 ---
 
+### Content endpoints — Posts, Projects, Videos
+
+Three collections share the same pattern, at `/api/posts`, `/api/projects`, and `/api/videos`:
+
+- **`GET /api/posts`** (and `/api/projects`, `/api/videos`) — public, no auth required. Returns the full collection as a JSON array, ordered the same way it was last saved.
+- **`PUT /api/posts`** (and `/api/projects`, `/api/videos`) — admin-only. **Replaces the entire collection** with the array in the request body — this is not a per-item PATCH, the whole array is the new source of truth. Requires `Authorization: Bearer <token>` with a valid JWT from `/api/auth/login`.
+
+This "replace the whole collection" design matches how the frontend's admin panel already worked when it saved to `localStorage` — it always computed the complete updated array (after an add/edit/delete) and saved that. Swapping the storage layer to Supabase required zero changes to that logic.
+
+**GET example response** (`/api/posts`):
+
+```json
+[
+  {
+    "slug": "understanding-smart-money-concepts-forex",
+    "title": "Understanding Smart Money Concepts in Forex",
+    "category": "Trading",
+    "date": "Mar 2025",
+    "readTime": "8 min read",
+    "excerpt": "A deep dive into how institutional traders move markets...",
+    "content": [{ "type": "p", "text": "..." }]
+  }
+]
+```
+
+**PUT request body** — the same shape as the GET response, as a full array:
+
+```json
+[
+  {
+    "slug": "my-new-post",
+    "title": "My New Post",
+    "category": "Trading",
+    "date": "Jul 2026",
+    "readTime": "5 min read",
+    "excerpt": "A short summary.",
+    "content": [{ "type": "p", "text": "Post body." }]
+  }
+]
+```
+
+**Response (success, 200):**
+
+```json
+{ "success": true, "count": 1 }
+```
+
+**Response (validation error, 400):**
+
+```json
+{ "error": "Item 0: slug is required" }
+```
+
+**Response (missing/invalid auth, 401):**
+
+```json
+{ "error": "Missing or malformed Authorization header" }
+```
+
+**Response (rate limited, 429):**
+
+```json
+{ "error": "Too many updates. Try again later." }
+```
+
+`projects` items use: `id`, `title`, `category`, `stack` (array or comma-separated string, normalized to an array), `desc`, `status`, `link`, `link1`.
+
+`videos` items use: `id`, `youtubeId`, `title`, `category`, `description`, `date`.
+
+---
+
 ### POST `/send-email`
 
 Sends a contact form submission to the portfolio owner's inbox via Resend.
@@ -220,11 +308,14 @@ Sends a contact form submission to the portfolio owner's inbox via Resend.
 
 - **Security headers** are applied via Helmet on every response, including `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, and others.
 
-- **Rate limiting** protects both routes:
+- **Rate limiting** protects every write route:
   - `/api/auth` — max 10 login attempts per IP per 15 minutes
   - `/send-email` — max 5 submissions per IP per 15 minutes
+  - `PUT /api/posts`, `/api/projects`, `/api/videos` — max 30 updates per IP per 15 minutes, each
 
-- **Production Variable Injection:** On Railway or any other deployment platform, never upload a `.env` file. Instead, manually bind all environment variables (`RESEND_API_KEY`, `EMAIL_USER`, `ADMIN_PASSWORD`, `JWT_SECRET`) via the platform's Variables/Environment dashboard.
+- **Supabase access is server-only.** The `service_role` key bypasses Row Level Security and is never sent to the frontend — it lives only in this backend's environment variables. Every table has RLS enabled with no public policies, so even a leaked `anon` key could not read or write these tables directly; this Express server is the only path in.
+
+- **Production Variable Injection:** On Railway or any other deployment platform, never upload a `.env` file. Instead, manually bind all environment variables (`RESEND_API_KEY`, `EMAIL_USER`, `ADMIN_PASSWORD`, `JWT_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) via the platform's Variables/Environment dashboard.
 
 - **Production Failure Diagnostics:** If the server fails to start in production, check the Deploy Logs in your Railway dashboard for the exact error trace from the startup environment validation check.
 

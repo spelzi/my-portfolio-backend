@@ -1,19 +1,39 @@
+// Must be the very first import: ES module imports run in order, and
+// Routes/posts.js (imported below) pulls in supabaseClient.js, which reads
+// process.env at module-load time. If dotenv hadn't loaded .env yet, that
+// check would always fail — even with a correctly filled-in .env file.
+import "dotenv/config";
+
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import helmet from "helmet";
-import dotenv from "dotenv";
 import { Resend } from "resend";
 import { rateLimit } from "express-rate-limit";
 import authRoutes from "./Routes/auth.js";
-
-dotenv.config();
+import postsRoutes from "./Routes/posts.js";
+import projectsRoutes from "./Routes/projects.js";
+import videosRoutes from "./Routes/videos.js";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-if (!process.env.RESEND_API_KEY || !process.env.EMAIL_USER) {
-  throw new Error("CRITICAL: Resend configurations are missing!");
+// ─── Startup environment validation ──────────────────────────────
+// Fail fast and loud with a specific list of what's missing, rather than
+// booting successfully and failing mysteriously on the first real request.
+const REQUIRED_ENV_VARS = [
+  "RESEND_API_KEY",
+  "EMAIL_USER",
+  "ADMIN_PASSWORD",
+  "JWT_SECRET",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+];
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+if (missingEnvVars.length > 0) {
+  throw new Error(
+    `CRITICAL: Missing required environment variables: ${missingEnvVars.join(", ")}`,
+  );
 }
 
 // ─── Security headers ────────────────────────────────────────────
@@ -26,13 +46,16 @@ app.use(
       "http://localhost:5173",
       "https://my-portfolio-navy-alpha-56.vercel.app",
     ],
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    methods: ["GET", "POST", "PUT"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
 // ─── Body parser, explicit size limit ────────────────────
-app.use(bodyParser.json({ limit: "20kb" }));
+// 2mb accommodates full blog post content arrays (posts/projects/videos
+// PUT payloads). send-email's own payload is separately capped at the
+// field level (message max 5000 chars) regardless of this ceiling.
+app.use(bodyParser.json({ limit: "2mb" }));
 
 // ─── Rate limiters ───────────────────────────────────────────────
 const authLimiter = rateLimit({
@@ -53,6 +76,13 @@ const contactFormLimiter = rateLimit({
 
 // ─── Routes ──────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, authRoutes);
+
+// Content collections: GET is public (no auth), PUT is admin-only (JWT
+// checked inside each router) with its own independent rate limit.
+// See lib/collectionRouter.js for the shared implementation.
+app.use("/api/posts", postsRoutes);
+app.use("/api/projects", projectsRoutes);
+app.use("/api/videos", videosRoutes);
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
